@@ -1,0 +1,6 @@
+
+.env
+/.venv
+.vscode/settings.json
+.sesskey
+*.pyc

@@ -1,0 +1,6 @@
+python-fasthtml
+requests
+pydantic
+openai
+anthropic
+markupsafe
