@@ -15,6 +15,8 @@ from openai.types.shared_params import ResponseFormatText, ResponseFormatJSONObj
 from openai import OpenAI, AzureOpenAI
 from anthropic import Anthropic
 from anthropic.types import MessageParam, TextBlockParam, ModelParam
+from anthropic.types.beta.prompt_caching.prompt_caching_beta_cache_control_ephemeral_param import PromptCachingBetaCacheControlEphemeralParam
+from anthropic.types.beta.prompt_caching.prompt_caching_beta_text_block_param import PromptCachingBetaTextBlockParam
 from anthropic.types import (
     ContentBlock, TextBlockParam, ImageBlockParam, TextBlock,
     ToolUseBlockParam, ToolResultBlockParam,
@@ -235,6 +237,7 @@ class AIUtilities:
         tools: Optional[List[ToolParam]],
         llm_config: LLMConfig
     ):  
+        system_content = self.create_anthropic_system_message(prompt)
         #check if hte last message is a assistant and remove it
         if prompt[-1]["role"] == "assistant":
             prompt = prompt[:-1]
@@ -264,8 +267,9 @@ class AIUtilities:
                 )
                 completion_kwargs["tools"] = [tool]
                 completion_kwargs["tool_choice"] =  ToolChoiceToolChoiceTool(name= function_name, type="tool")
+                completion_kwargs["system"] = system_content
 
-            response = client.messages.create(**completion_kwargs)
+            response = client.beta.prompt_caching.messages.create(**completion_kwargs)
             return response
         except Exception as e:
             return str(e)
@@ -316,6 +320,20 @@ class AIUtilities:
         except Exception as e:
             return f"Error: {str(e)}"
 
+    def create_anthropic_system_message(self, prompt: List[Dict[str, Any]]) -> List[PromptCachingBetaTextBlockParam]:
+        system_message = next((msg for msg in prompt if msg["role"] == "system"), None)
+        system_content= []
+        if system_message:
+            content = system_message["content"]
+            if isinstance(content, str):
+                system_content = [PromptCachingBetaTextBlockParam(type="text", text=content,cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral"))]
+            elif isinstance(content, list):
+                system_content = [
+                    PromptCachingBetaTextBlockParam(type="text", text=block,cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) if isinstance(block, str)
+                    else PromptCachingBetaTextBlockParam(type="text", text=block["text"],cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) for block in content
+                ]
+        return system_content
+        
 
     def run_anthropic_completion(
         self,
@@ -323,20 +341,9 @@ class AIUtilities:
         prompt: List[Dict[str, Any]],
         llm_config: LLMConfig
     ):
-        # try:
         
         
-        system_message = next((msg for msg in prompt if msg["role"] == "system"), None)
-        system_content= []
-        if system_message:
-            content = system_message["content"]
-            if isinstance(content, str):
-                system_content = content
-            elif isinstance(content, list):
-                system_content = [
-                    TextBlockParam(type="text", text=block) if isinstance(block, str)
-                    else TextBlockParam(type="text", text=block["text"]) for block in content
-                ]
+        system_content = self.create_anthropic_system_message(prompt)
         
         model_name = llm_config.model or self.anthropic_model
         assert model_name in ["claude-3-sonnet-20240620", "claude-3-haiku-20240307", "claude-3-opus-20240229", "claude-3-5-sonnet-20240620"], "Invalid model name"
@@ -347,11 +354,11 @@ class AIUtilities:
             )
         anthropic_messages = self.msg_dict_to_anthropic(prompt)
         print(anthropic_messages)
-        response = anthropic.messages.create(
+        response = anthropic.beta.prompt_caching.messages.create(
             model=model_name,
             max_tokens=llm_config.max_tokens,
             temperature=llm_config.temperature,
-            system=system_content if isinstance(system_content, (str, NotGiven)) else system_content,
+            system=system_content,
             messages=anthropic_messages
             
         )
