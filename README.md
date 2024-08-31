@@ -1,6 +1,6 @@
-# Virtual Tabletop Adventure Game
+# Bing Dungeon
 
-Welcome to the Virtual Tabletop Adventure Game! This is an AI-powered text-based adventure game where you can create and explore unique adventures.
+Welcome to the BingDungeon! This is an AI-powered emojy-based adventure game where you can create and explore unique thingies.
 
 ## Installation
 
