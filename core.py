@@ -198,7 +198,8 @@ Use this context to inform your responses and guide the player through the adven
             last_action=user_action,
             log=game_state.log + [f"AI response: {response['description']}"],
             conversation_history=game_state.conversation_history + [f"User action: {user_action}", f"AI response: {response['description']}"],
-            change_type=response["change_type"]
+            change_type=response["change_type"],
+            adventure=game_state.adventure
         )
         
         logger.info(f"New game state created: {new_state}")
