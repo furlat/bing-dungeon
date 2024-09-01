@@ -6,7 +6,9 @@ from anthropic.types import ToolUseBlock
 from story_generation import generate_adventure
 import logging
 import time
+from prompt import system_prompt
 
+SYSTEM_PROMPT = system_prompt
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,7 +23,7 @@ class GameState(BaseModel):
 
 ai_utilities = AIUtilities()
 
-def generate_initial_state(adventure: Dict) -> Tuple[Optional[GameState], int, int, float]:
+def generate_initial_state(adventure: Dict) -> Tuple[Optional[GameState], int, int, int, int, float]:
     logger.info("Generating initial game state based on adventure setup")
     start_time = time.time()
     
@@ -87,17 +89,17 @@ def generate_initial_state(adventure: Dict) -> Tuple[Optional[GameState], int, i
             adventure=adventure
         )
         
-        return game_state, result.usage.input_tokens, result.usage.output_tokens, response_time
+        return game_state, result.usage.input_tokens, result.usage.output_tokens, result.usage.cache_creation_input_tokens, result.usage.cache_read_input_tokens, response_time
     except Exception as e:
         logger.error(f"Error generating initial state: {str(e)}")
-        return None, 0, 0, 0
+        return None, 0, 0, 0, 0, 0
 
-def update_battlemap_with_ai(game_state: GameState, user_action: str) -> Tuple[GameState, int, int]:
+def update_battlemap_with_ai(game_state: GameState, user_action: str) -> Tuple[GameState, int, int, int, int]:
     logger.info(f"Updating battlemap with AI for action: {user_action}")
     
     if game_state is None:
         logger.error("Game state is None. Cannot update battlemap.")
-        return None, 0, 0
+        return None, 0, 0, 0, 0
 
     # Prepare the input for the AI
     battlemap_str = "\n".join([f"{k}: {v}" for k, v in game_state.battlemap.items()])
@@ -106,17 +108,17 @@ def update_battlemap_with_ai(game_state: GameState, user_action: str) -> Tuple[G
     
     adventure_context = json.dumps(game_state.adventure)
     
-    system_prompt = f"""You are an AI dungeon master for a text-based adventure game. Your task is to update the game state based on the player's actions and the current adventure context.
+    extra_system_prompt = f"""You are an AI dungeon master for a text-based adventure game. Your task is to update the game state based on the player's actions and the current adventure context.
 
 Current adventure context:
 {adventure_context}
 
 Use this context to inform your responses and guide the player through the adventure. Incorporate elements from the adventure into the game world and narrative.
 
-... (rest of the original system prompt) ..."""
-
+"""
+    system_prompt_final = SYSTEM_PROMPT + extra_system_prompt
     prompt = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": system_prompt_final},
         {"role": "user", "content": f"Current battlemap:\n{battlemap_str}\nPlayer position: {game_state.player_pos}\nRecent conversation:\n{conversation_history}\nUser action: {user_action}\n\nUpdate the battlemap and provide a brief description of what happened."}
     ]
 
@@ -168,13 +170,13 @@ Use this context to inform your responses and guide the player through the adven
         
         # Parse the result
         if isinstance(result, str):
-            updated_state = json.loads(result)
+            response = json.loads(result)
         elif isinstance(result, dict):
-            updated_state = result
+            response = result
         elif hasattr(result, 'content') and isinstance(result.content, list):
             for content_item in result.content:
                 if isinstance(content_item, ToolUseBlock):
-                    updated_state = content_item.input
+                    response = content_item.input
                     break
             else:
                 raise ValueError("No ToolUseBlock found in the response")
@@ -182,7 +184,7 @@ Use this context to inform your responses and guide the player through the adven
             raise ValueError("Unexpected response format")
         
         # Convert string tuple keys to actual tuples
-        updated_battlemap = {eval(k): v for k, v in updated_state["battlemap"].items()}
+        updated_battlemap = {eval(k): v for k, v in response["battlemap"].items()}
         
         # Remove any player emoji from the battlemap
         for k, v in updated_battlemap.items():
@@ -190,17 +192,17 @@ Use this context to inform your responses and guide the player through the adven
                 updated_battlemap[k] = '🌾'  # Replace with grass or appropriate terrain
         
         # Create a new GameState from the updated state
-        new_game_state = GameState(
+        new_state = GameState(
             battlemap=updated_battlemap,
-            player_pos=tuple(updated_state["player_pos"]),
+            player_pos=tuple(response["player_pos"]),
             last_action=user_action,
-            log=game_state.log + [f"AI response: {updated_state['description']}"],
-            conversation_history=game_state.conversation_history + [f"User action: {user_action}", f"AI response: {updated_state['description']}"],
-            change_type=updated_state["change_type"]
+            log=game_state.log + [f"AI response: {response['description']}"],
+            conversation_history=game_state.conversation_history + [f"User action: {user_action}", f"AI response: {response['description']}"],
+            change_type=response["change_type"]
         )
         
-        logger.info(f"New game state created: {new_game_state}")
-        return new_game_state, result.usage.input_tokens, result.usage.output_tokens
+        logger.info(f"New game state created: {new_state}")
+        return new_state, result.usage.input_tokens, result.usage.output_tokens, result.usage.cache_creation_input_tokens, result.usage.cache_read_input_tokens
     except Exception as e:
         logger.error(f"Error updating game state: {str(e)}")
-        return game_state, 0, 0
+        return None, 0, 0, 0, 0

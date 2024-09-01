@@ -364,7 +364,8 @@ IMPORTANT REMINDERS:
 6. Use the 'change_type' field appropriately to indicate whether the action results in the same map layout or a completely new map.
 7. Provide engaging and descriptive narratives in the 'description' field, written in second person perspective.
 8. Ensure that all responses strictly follow the JSON schema provided.
-
+9. Since the character is rendered AFTERWISE when he asks to move to an object position it immediately adjecent to the object, but not at the same position. Same if he creates a new object, like a fire, spawns it next to him.
+10. Remember to catch scenario updates, like movements from indoor to outdoor and create a new map for that instead of getting stuck.
 You are now ready to generate creative and engaging responses to player actions in this emoji-based ASCII game world!
 """
 

@@ -91,18 +91,17 @@ class AIUtilities:
                 return None
             
             if isinstance(content, str):
-                content = [TextBlockParam(type="text", text=content)]
+                content = [PromptCachingBetaTextBlockParam(type="text", text=content)]
             elif isinstance(content, list):
                 content = [
-                    TextBlockParam(type="text", text=block) if isinstance(block, str)
-                    else block for block in content
+                    PromptCachingBetaTextBlockParam(type="text", text=block) if isinstance(block, str)
+                    else PromptCachingBetaTextBlockParam(type="text", text=block["text"]) for block in content
                 ]
             else:
                 raise ValueError("Invalid content type")
             
-
-            
             return MessageParam(role=role, content=content)
+        
         converted_messages = [convert_message(msg) for msg in messages]
         return [msg for msg in converted_messages if msg is not None]
 
@@ -269,6 +268,7 @@ class AIUtilities:
                 completion_kwargs["tool_choice"] =  ToolChoiceToolChoiceTool(name= function_name, type="tool")
                 completion_kwargs["system"] = system_content
 
+
             response = client.beta.prompt_caching.messages.create(**completion_kwargs)
             return response
         except Exception as e:
@@ -326,11 +326,11 @@ class AIUtilities:
         if system_message:
             content = system_message["content"]
             if isinstance(content, str):
-                system_content = [PromptCachingBetaTextBlockParam(type="text", text=content,cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral"))]
+                system_content = [PromptCachingBetaTextBlockParam(type="text", text=content, cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral"))]
             elif isinstance(content, list):
                 system_content = [
-                    PromptCachingBetaTextBlockParam(type="text", text=block,cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) if isinstance(block, str)
-                    else PromptCachingBetaTextBlockParam(type="text", text=block["text"],cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) for block in content
+                    PromptCachingBetaTextBlockParam(type="text", text=block, cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) if isinstance(block, str)
+                    else PromptCachingBetaTextBlockParam(type="text", text=block["text"], cache_control=PromptCachingBetaCacheControlEphemeralParam(type="ephemeral")) for block in content
                 ]
         return system_content
         
@@ -341,31 +341,41 @@ class AIUtilities:
         prompt: List[Dict[str, Any]],
         llm_config: LLMConfig
     ):
-        
-        
         system_content = self.create_anthropic_system_message(prompt)
         
-        model_name = llm_config.model or self.anthropic_model
-        assert model_name in ["claude-3-sonnet-20240620", "claude-3-haiku-20240307", "claude-3-opus-20240229", "claude-3-5-sonnet-20240620"], "Invalid model name"
-        if llm_config.response_format == "json":
-            print("json format detected in anthropic")
-            prompt.append(
-                {"role": "assistant", "content": "Here's the valid JSON object response:```json"}
-            )
+        #check if the last message is an assistant and remove it
+        if prompt[-1]["role"] == "assistant":
+            prompt = prompt[:-1]
         anthropic_messages = self.msg_dict_to_anthropic(prompt)
-        print(anthropic_messages)
-        response = anthropic.beta.prompt_caching.messages.create(
-            model=model_name,
-            max_tokens=llm_config.max_tokens,
-            temperature=llm_config.temperature,
-            system=system_content,
-            messages=anthropic_messages
+        model = llm_config.model or self.anthropic_model
+
+        try:
+            assert model is not None, "Model is not set"
             
-        )
-        assert isinstance(response.content[0], TextBlock)
-        
-        return response.content[0].text
-            
+            completion_kwargs = {
+                "model": model,
+                "messages": anthropic_messages,
+                "max_tokens": llm_config.max_tokens,
+                "temperature": llm_config.temperature,
+                "system": system_content,
+            }
+
+            if llm_config.json_schema is not None:
+                function_name = "generate_structured_output"
+                function_description = "Generate a structured output based on the provided JSON schema."
+                tool = ToolParam(
+                    name=function_name,
+                    description=function_description,
+                    input_schema=llm_config.json_schema,
+                )
+                completion_kwargs["tools"] = [tool]
+                completion_kwargs["tool_choice"] = ToolChoiceToolChoiceTool(name=function_name, type="tool")
+
+
+            response = anthropic.beta.prompt_caching.messages.create(**completion_kwargs)
+            return response
+        except Exception as e:
+            return str(e)
 
 
 def main():
